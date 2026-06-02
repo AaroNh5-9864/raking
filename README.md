@@ -9,7 +9,7 @@ population targets, using the ADMM solver shared with the Python `rsw` and R
 
 ```r
 # install.packages("remotes")
-remotes::install_github("<your-username>/raking")
+remotes::install_github("AaroNh5-9864/raking")
 ```
 
 ## Usage
@@ -38,7 +38,7 @@ constraints.
 
 ## Status
 
-Research preview. See `RAKING-REVIEW-NOTES.md` (in the project) for the current
+Research preview. See `raking-design-v3.pdf` for the current
 design notes and open decisions.
 
 ## References

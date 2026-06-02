@@ -1,0 +1,36 @@
+Package: raking
+Title: Optimal Representative Sample Weighting
+Version: 0.0.0.9000
+Authors@R:
+    person("wkt", email = "wktc12@gmail.com", role = c("aut", "cre"))
+Description: Calibrates survey weights to known population targets using
+    regularized raking, following Barratt, Angeris and Boyd (2021)
+    "Optimal Representative Sample Weighting". Built on S7 classes with
+    vectorized operations.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    S7,
+    Matrix,
+    lamW,
+    generics
+Suggests:
+    data.table,
+    regrake,
+    testthat (>= 3.0.0),
+    tibble
+Config/testthat/edition: 3
+Collate: 
+    'control.R'
+    'model.R'
+    'fit.R'
+    'generics.R'
+    'losses.R'
+    'penalty.R'
+    'pipe.R'
+    'raking-package.R'
+    'regularizers.R'
+    'result.R'
+    'solver.R'

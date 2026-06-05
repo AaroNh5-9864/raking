@@ -1,0 +1,185 @@
+---
+title: "Getting started with raking"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with raking}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+## The problem
+
+Survey samples rarely look like the population they are meant to describe.
+We would like to be able to take a sample and apply weights to each response such that the weighted sample "looks" like the intended population.
+Raking (calibration weighting) finds weights to make the sample match known population targets, while also keeping the
+weights close to uniform, so as to not have any respondents dominate the weighted sample.
+
+`raking` implements Optimal Representative Sample Weighting (Barratt, Angeris
+& Boyd, 2021): the weights solve a single convex optimization problem that
+combines (a) the population constraints, (b) a penalty that keeps weights
+near uniform, and (c) hard bounds on individual weights. The problem is
+solved with the same ADMM algorithm used by the Python `rsw` and R `regrake`
+packages.
+
+## A first example
+
+We simulate a survey of 500 respondents that over-represents men and
+under-represents the young:
+
+```{r setup}
+library(raking)
+set.seed(1)
+
+n <- 500
+survey <- data.frame(
+  sex = sample(c("M", "F"), n, replace = TRUE, prob = c(0.60, 0.40)),
+  age = sample(c("18-34", "35-64", "65+"), n, replace = TRUE,
+               prob = c(0.20, 0.50, 0.30))
+)
+survey$income <- 40000 +
+  15000 * (survey$age == "35-64") +
+  5000  * (survey$sex == "M") +
+  rnorm(n, sd = 8000)
+
+prop.table(table(survey$sex))
+prop.table(table(survey$age))
+```
+
+Suppose the population is 48% male / 52% female, and 30% / 45% / 25% across
+the three age groups. A model is built data-free, by piping steps together,
+and only meets the data at `fit()`:
+
+```{r first-fit}
+model <- raking() |>
+  target(data.frame(sex = c("M", "F"), p = c(0.48, 0.52))) |>
+  target(data.frame(age = c("18-34", "35-64", "65+"),
+                    p   = c(0.30, 0.45, 0.25))) |>
+  penalty(entropy())
+
+res <- fit(model, survey)
+summary(res)
+```
+
+The summary shows each margin's target and achieved value, the Kish
+effective sample size, and the solver convergence. The weights come back in input row order and sum to `nrow(survey)`, so weight 1 means a respondent counts as exactly one person, weight 2 as two, etc.
+
+```{r weights}
+survey$wt <- weights(res)
+c(total = sum(survey$wt), n = nrow(survey))
+
+# weighted shares now match the targets
+tapply(survey$wt, survey$sex, sum) / n
+tapply(survey$wt, survey$age, sum) / n
+```
+
+Because the model is data-free, the same `model` object can be fitted to
+next month's survey unchanged.
+
+## Calibrating a continuous mean
+
+`target()` handles categorical margins. For continuous variables,
+`calibrate()` matches a weighted mean:
+
+```{r calibrate}
+model2 <- model |> calibrate(mean(income) ~ 50000)
+res2 <- fit(model2, survey)
+summary(res2)
+```
+
+## Exact constraints vs tolerance bands
+
+By default (`tol = 0`) every margin is matched exactly. Passing `tol > 0`
+relaxes a margin into a penalized band where the achieved value must stay within
+`target +/- tol` (a hard bound), and inside that band its difference from its target is penalized under the model's `loss` ("KL" by default; also "L1", "L2",
+"chi_square"). The `loss` argument of `raking()` is only relevant for banded
+constraints, as exact margins (`tol = 0`) would have a loss of zero.
+
+```{r banded}
+banded <- raking(loss = "KL") |>
+  target(data.frame(sex = c("M", "F"), p = c(0.48, 0.52)), tol = 0.02) |>
+  penalty(entropy())
+
+res3 <- fit(banded, survey)
+summary(res3)
+```
+
+Bands are useful because exact matching is not always worth the cost. For instance, allowing a small deviation is usually acceptable, and the slack gained would allow the solver keep weights more uniform, preserving effective sample size. Alternatively, the targets themselves might be estimates, in which case matching them exactly could be false precision.
+
+## Penalties and bounds
+
+The penalty decides what "close to uniform" means:
+
+* `entropy()` — maximum-entropy weights, the classical raking choice;
+* `kl(prior)` — pull weights toward a prior weight vector;
+* `sum_squares()` — penalize squared deviations (L2).
+
+`lambda` scales the penalty's strength relative to the constraints.
+`bounds(min, max)` puts hard per-respondent limits on the weights
+(`min` in `[0, 1)`, `max > 1`), which caps the influence of any single
+respondent:
+
+```{r bounds}
+bounded <- model |> bounds(min = 0.3, max = 3)
+res4 <- fit(bounded, survey)
+range(weights(res4))
+```
+
+## Starting from design weights
+
+If the survey already has design weights, pass them as `base`; raking then
+adjusts relative to them instead of relative to uniform:
+
+```{r base}
+design_w <- runif(n, 0.5, 1.5)
+res5 <- fit(model, survey, base = design_w)
+summary(res5)
+```
+
+## Diagnostics
+
+Two things are worth checking on every fit. First, the balance table in
+`summary()` should have every constraint satisfied. Second, the Kish
+effective sample size shows how much precision is lost from the weighting. An ESS of 400 on n = 500 means the weighted estimates are roughly
+as precise as an unweighted simple random sample of 400:
+
+```{r diagnostics}
+w <- weights(res)
+ess <- sum(w)^2 / sum(w^2)
+c(ess = ess, efficiency = ess / n)
+```
+
+If the ESS is much smaller than the sample size, consider widening `tol`, loosening `bounds()`, or dropping a margin.
+
+## Solver Control
+
+The weights come from an iterative solver that stops once the solution
+changes by less than a tolerance between iterations. The defaults are fine
+for routine use. Two cases call for adjusting them through `control` (see `?rake_control`): tightening `eps_abs` and `eps_rel` when constraints must
+hold to more decimal places (for instance, when comparing results against
+another implementation), and raising `maxiter` if `summary()` reports a fit
+stopped before converging.
+
+```{r control}
+res_tight <- fit(model, survey,
+                 control = list(eps_abs = 1e-8, eps_rel = 1e-8))
+max(abs(weights(res_tight) - weights(res)))
+```
+
+The negligible difference confirms the defaults were already adequate here.
+
+## Relation to rsw and regrake
+
+`raking` shares its optimization formulation and ADMM solver with the Python
+[`rsw`](https://github.com/cvxgrp/rsw) package and the R `regrake` package,
+and matches them on exact constraints. The treatment of ranged constraints
+differs by design: `raking` uses a penalized band, described in the design document
+`raking-design-v3.pdf` shipped at the repository root.
+
+## References
+
+Barratt, S., Angeris, G., & Boyd, S. (2021). *Optimal Representative Sample
+Weighting*. SSRN 3604610.

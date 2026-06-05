@@ -9,6 +9,14 @@ Description: Calibrates survey weights to known population targets using
     vectorized operations.
 License: MIT + file LICENSE
 Encoding: UTF-8
+Suggests:
+    data.table,
+    knitr,
+    regrake,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    tibble
+VignetteBuilder: knitr
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
@@ -16,11 +24,6 @@ Imports:
     Matrix,
     lamW,
     generics
-Suggests:
-    data.table,
-    regrake,
-    testthat (>= 3.0.0),
-    tibble
 Config/testthat/edition: 3
 Collate: 
     'control.R'

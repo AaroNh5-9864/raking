@@ -130,3 +130,19 @@ test_that("fit() handles a joint (sex x age) margin, matched exactly", {
   expect_equal(res@weights, c(0.75, 1.5, 1.5, 0.75, 0.75, 0.75),
                tolerance = 1e-4)
 })
+
+test_that("calibrate() target can be a variable from the caller's scope", {
+  # Regression: the formula's RHS must be evaluated in the formula's own
+  # environment, not inside fit(). A literal (mean(income) ~ 58000) always
+  # works because it needs no environment; a variable only resolves if fit()
+  # uses environment(formula). Wrapping in a function puts `mu` in a scope
+  # that fit()'s internals cannot see, so this fails until that is fixed.
+  data <- data.frame(income = c(40000, 60000, 50000, 70000, 45000))
+  fit_with <- function(mu) {
+    model <- raking() |> calibrate(mean(income) ~ mu) |> penalty(entropy())
+    fit(model, data, control = list(eps_abs = 1e-8, eps_rel = 1e-8))
+  }
+  res <- fit_with(52000)
+  expect_equal(res@balance$achieved[res@balance$variable == "income"], 52000,
+               tolerance = 1)
+})

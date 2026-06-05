@@ -122,7 +122,7 @@ build_model_inputs <- function(model, data) {
       stop("calibrate() left-hand side must be mean(var)", call. = FALSE)
     }
     var <- as.character(lhs[[2]])
-    value <- eval(f[[3]])
+    value <- eval(f[[3]], environment(f))
     if (is.null(data[[var]])) {
       stop("variable `", var, "` not found in data", call. = FALSE)
     }
